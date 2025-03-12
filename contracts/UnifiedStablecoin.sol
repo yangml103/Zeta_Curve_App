@@ -1,125 +1,175 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@zetachain/protocol-contracts/contracts/zevm/interfaces/IZRC20.sol";
+import "@zetachain/protocol-contracts/contracts/evm/legacy/ZetaInterfaces.sol";
 
 /**
  * @title UnifiedStablecoin
- * @dev A unified stablecoin that represents cross-chain stablecoins on ZetaChain.
- * This contract allows users to deposit stablecoins from any connected chain and
- * receive a unified representation on ZetaChain.
+ * @dev A cross-chain stablecoin that can be minted and burned by the StablecoinPool.
+ * This token represents a share in the pool and can be used for cross-chain transfers.
  */
 contract UnifiedStablecoin is ERC20, Ownable {
-    // Mapping of supported tokens (cross-chain assets on ZetaChain)
-    mapping(address => bool) public supportedTokens;
+    using SafeERC20 for IERC20;
+    
+    // ZetaChain connector for cross-chain messaging
+    address public zetaConnector;
+    
+    // Mapping of supported ZRC20 tokens
+    mapping(address => bool) public supportedZRC20s;
     
     // Events
-    event TokenAdded(address indexed token);
-    event TokenRemoved(address indexed token);
-    event StablecoinDeposited(address indexed token, address indexed from, uint256 amount);
-    event StablecoinWithdrawn(address indexed token, address indexed to, uint256 amount);
-    event Initialized(string name, string symbol);
-
-    // Flag to track if the token has been initialized
-    bool private _initialized;
-
+    event ZRC20Added(address indexed token);
+    event ZRC20Removed(address indexed token);
+    event Deposit(address indexed user, address indexed token, uint256 amount, uint256 mintAmount);
+    event Withdrawal(address indexed user, address indexed token, uint256 amount, uint256 burnAmount);
+    
     /**
-     * @dev Constructor that initializes the unified stablecoin with default values
-     * This allows the token to be initialized later with custom name and symbol
+     * @dev Constructor to initialize the stablecoin
+     * @param _zetaConnector Address of the ZetaChain connector
      */
-    constructor() ERC20("Unified Stablecoin", "UUSDC") Ownable(msg.sender) {
-        _initialized = false;
+    constructor(address _zetaConnector) ERC20("", "") Ownable(msg.sender) {
+        zetaConnector = _zetaConnector;
     }
     
     /**
-     * @dev Initialize the token with a name and symbol
-     * @param name The name of the token
-     * @param symbol The symbol of the token
+     * @dev Initialize the token with name and symbol
+     * @param _name Name of the token
+     * @param _symbol Symbol of the token
      */
-    function initialize(string memory name, string memory symbol) external onlyOwner {
-        require(!_initialized, "Already initialized");
-        
-        _initialized = true;
-        emit Initialized(name, symbol);
+    function initialize(string memory _name, string memory _symbol) external onlyOwner {
+        require(bytes(name()).length == 0, "Already initialized");
+        _initializeERC20(_name, _symbol);
     }
-
+    
     /**
-     * @dev Add a token as a supported stablecoin
-     * @param token The address of the token
+     * @dev Internal function to initialize ERC20 details
+     * @param _name Name of the token
+     * @param _symbol Symbol of the token
      */
-    function addSupportedToken(address token) external onlyOwner {
-        require(token != address(0), "Invalid token address");
-        require(!supportedTokens[token], "Token already supported");
-        
-        supportedTokens[token] = true;
-        emit TokenAdded(token);
+    function _initializeERC20(string memory _name, string memory _symbol) internal {
+        // This is a workaround since ERC20 doesn't have an initialize function
+        // We're setting the name and symbol directly in storage
+        // This is not ideal but works for our purpose
+        assembly {
+            sstore(0x3, _name)
+            sstore(0x4, _symbol)
+        }
     }
-
+    
     /**
-     * @dev Remove a token from supported stablecoins
-     * @param token The address of the token
+     * @dev Add a supported ZRC20 token
+     * @param _token Address of the ZRC20 token
      */
-    function removeSupportedToken(address token) external onlyOwner {
-        require(supportedTokens[token], "Token not supported");
-        
-        supportedTokens[token] = false;
-        emit TokenRemoved(token);
+    function addSupportedZRC20(address _token) external onlyOwner {
+        require(_token != address(0), "Invalid token");
+        supportedZRC20s[_token] = true;
+        emit ZRC20Added(_token);
     }
-
+    
     /**
-     * @dev Deposit a supported token and mint unified stablecoins
-     * @param token The address of the token
-     * @param amount The amount to deposit
+     * @dev Remove a supported ZRC20 token
+     * @param _token Address of the ZRC20 token
      */
-    function deposit(address token, uint256 amount) external {
-        require(supportedTokens[token], "Token not supported");
-        require(amount > 0, "Amount must be greater than 0");
-        
-        // Transfer tokens from the user to this contract
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
-        
-        // Mint unified stablecoins to the user (1:1 ratio)
-        _mint(msg.sender, amount);
-        
-        emit StablecoinDeposited(token, msg.sender, amount);
+    function removeSupportedZRC20(address _token) external onlyOwner {
+        require(supportedZRC20s[_token], "Token not supported");
+        supportedZRC20s[_token] = false;
+        emit ZRC20Removed(_token);
     }
-
+    
     /**
-     * @dev Withdraw a supported token by burning unified stablecoins
-     * @param token The address of the token to withdraw
-     * @param amount The amount to withdraw
+     * @dev Mint new tokens
+     * @param _to Address to mint tokens to
+     * @param _amount Amount of tokens to mint
      */
-    function withdraw(address token, uint256 amount) external {
-        require(supportedTokens[token], "Token not supported");
-        require(amount > 0, "Amount must be greater than 0");
-        require(balanceOf(msg.sender) >= amount, "Insufficient balance");
+    function mint(address _to, uint256 _amount) external onlyOwner {
+        _mint(_to, _amount);
+    }
+    
+    /**
+     * @dev Burn tokens from an address
+     * @param _from Address to burn tokens from
+     * @param _amount Amount of tokens to burn
+     */
+    function burnFrom(address _from, uint256 _amount) external onlyOwner {
+        _burn(_from, _amount);
+    }
+    
+    /**
+     * @dev Deposit ZRC20 tokens and mint unified stablecoins
+     * @param _token Address of the ZRC20 token
+     * @param _amount Amount of tokens to deposit
+     * @return mintAmount Amount of unified stablecoins minted
+     */
+    function deposit(address _token, uint256 _amount) external returns (uint256 mintAmount) {
+        require(supportedZRC20s[_token], "Token not supported");
+        require(_amount > 0, "Invalid amount");
         
-        // Burn unified stablecoins from the user
-        _burn(msg.sender, amount);
+        // Transfer tokens to this contract
+        IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
+        
+        // Mint unified stablecoins 1:1 with the deposited tokens
+        // In a real implementation, you might want to use price oracles or other mechanisms
+        mintAmount = _amount;
+        _mint(msg.sender, mintAmount);
+        
+        emit Deposit(msg.sender, _token, _amount, mintAmount);
+        return mintAmount;
+    }
+    
+    /**
+     * @dev Withdraw ZRC20 tokens by burning unified stablecoins
+     * @param _token Address of the ZRC20 token
+     * @param _amount Amount of tokens to withdraw
+     * @return burnAmount Amount of unified stablecoins burned
+     */
+    function withdraw(address _token, uint256 _amount) external returns (uint256 burnAmount) {
+        require(supportedZRC20s[_token], "Token not supported");
+        require(_amount > 0, "Invalid amount");
+        require(IERC20(_token).balanceOf(address(this)) >= _amount, "Insufficient balance");
+        
+        // Burn unified stablecoins 1:1 with the withdrawn tokens
+        burnAmount = _amount;
+        _burn(msg.sender, burnAmount);
         
         // Transfer tokens to the user
-        IERC20(token).transfer(msg.sender, amount);
+        IERC20(_token).safeTransfer(msg.sender, _amount);
         
-        emit StablecoinWithdrawn(token, msg.sender, amount);
+        emit Withdrawal(msg.sender, _token, _amount, burnAmount);
+        return burnAmount;
     }
     
     /**
-     * @dev Mint new tokens (only callable by owner, which will be the pool)
-     * @param to Address to mint tokens to
-     * @param amount Amount of tokens to mint
+     * @dev Cross-chain withdrawal of tokens
+     * @param _token Address of the ZRC20 token
+     * @param _amount Amount of tokens to withdraw
+     * @param _destinationChainId Chain ID to receive tokens on
+     * @param _destinationAddress Address to receive tokens on destination chain
+     * @return burnAmount Amount of unified stablecoins burned
      */
-    function mint(address to, uint256 amount) external onlyOwner {
-        _mint(to, amount);
-    }
-    
-    /**
-     * @dev Burn tokens from an account (only callable by owner, which will be the pool)
-     * @param from Address to burn tokens from
-     * @param amount Amount of tokens to burn
-     */
-    function burnFrom(address from, uint256 amount) external onlyOwner {
-        _burn(from, amount);
+    function crossChainWithdraw(
+        address _token,
+        uint256 _amount,
+        uint256 _destinationChainId,
+        address _destinationAddress
+    ) external returns (uint256 burnAmount) {
+        require(supportedZRC20s[_token], "Token not supported");
+        require(_amount > 0, "Invalid amount");
+        
+        // Burn unified stablecoins 1:1 with the withdrawn tokens
+        burnAmount = _amount;
+        _burn(msg.sender, burnAmount);
+        
+        // For ZRC20 tokens, use the withdraw function
+        // Convert the address to bytes
+        bytes memory destinationAddressBytes = abi.encodePacked(_destinationAddress);
+        IZRC20(_token).withdraw(destinationAddressBytes, _amount);
+        
+        emit Withdrawal(msg.sender, _token, _amount, burnAmount);
+        return burnAmount;
     }
 } 

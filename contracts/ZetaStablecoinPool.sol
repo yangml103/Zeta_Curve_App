@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@zetachain/protocol-contracts/contracts/zevm/interfaces/IZRC20.sol";
+import "@zetachain/protocol-contracts/contracts/evm/legacy/ZetaInterfaces.sol";
 import "./UnifiedStablecoin.sol";
 
 /**
@@ -36,6 +38,9 @@ contract StablecoinPool is Ownable, ReentrancyGuard {
     // LP token (represents pool share)
     UnifiedStablecoin public lpToken;
     
+    // ZetaChain connector for cross-chain messaging
+    address public zetaConnector;
+    
     // Events
     event TokenSwap(
         address indexed buyer,
@@ -43,6 +48,16 @@ contract StablecoinPool is Ownable, ReentrancyGuard {
         address indexed tokenOut,
         uint256 amountIn,
         uint256 amountOut
+    );
+    
+    event CrossChainSwap(
+        address indexed buyer,
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 amountIn,
+        uint256 amountOut,
+        uint256 destinationChainId,
+        address destinationAddress
     );
     
     event AddLiquidity(
@@ -70,13 +85,15 @@ contract StablecoinPool is Ownable, ReentrancyGuard {
      * @param _swapFee Fee taken on swaps (in basis points)
      * @param _adminFee Percentage of swap fee taken as admin fee (in basis points)
      * @param _lpToken Address of the LP token (UnifiedStablecoin)
+     * @param _zetaConnector Address of the ZetaChain connector
      */
     constructor(
         address[] memory _tokens,
         uint256 _amplificationParameter,
         uint256 _swapFee,
         uint256 _adminFee,
-        address _lpToken
+        address _lpToken,
+        address _zetaConnector
     ) Ownable(msg.sender) {
         require(_tokens.length >= 2, "At least 2 tokens required");
         require(_amplificationParameter >= A_PRECISION, "A too low");
@@ -88,6 +105,7 @@ contract StablecoinPool is Ownable, ReentrancyGuard {
         swapFee = _swapFee;
         adminFee = _adminFee;
         lpToken = UnifiedStablecoin(_lpToken);
+        zetaConnector = _zetaConnector;
         
         for (uint256 i = 0; i < _tokens.length; i++) {
             require(_tokens[i] != address(0), "Invalid token");
@@ -250,6 +268,73 @@ contract StablecoinPool is Ownable, ReentrancyGuard {
         IERC20(_tokenOut).safeTransfer(msg.sender, amountOut);
         
         emit TokenSwap(msg.sender, _tokenIn, _tokenOut, _amountIn, amountOut);
+        return amountOut;
+    }
+    
+    /**
+     * @dev Swap tokens across chains
+     * @param _tokenIn Address of the input token
+     * @param _tokenOut Address of the output token
+     * @param _amountIn Amount of input token
+     * @param _minAmountOut Minimum amount of output token
+     * @param _destinationChainId Chain ID to receive tokens on
+     * @param _destinationAddress Address to receive tokens on destination chain
+     * @return amountOut Amount of output token received
+     */
+    function crossChainSwap(
+        address _tokenIn,
+        address _tokenOut,
+        uint256 _amountIn,
+        uint256 _minAmountOut,
+        uint256 _destinationChainId,
+        address _destinationAddress
+    ) external nonReentrant returns (uint256 amountOut) {
+        require(isToken[_tokenIn], "Invalid input token");
+        require(isToken[_tokenOut], "Invalid output token");
+        require(_tokenIn != _tokenOut, "Same tokens");
+        require(_amountIn > 0, "Invalid amount");
+        
+        // Calculate the swap locally first
+        uint256 indexIn = tokenIndexes[_tokenIn];
+        uint256 indexOut = tokenIndexes[_tokenOut];
+        
+        // Transfer input token to the pool
+        IERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
+        
+        // Calculate output amount
+        uint256 newBalanceIn = balances[indexIn] + _amountIn;
+        uint256 newBalanceOut = getY(indexIn, indexOut, newBalanceIn, balances);
+        
+        // Calculate fee
+        uint256 fee = swapFee * (balances[indexOut] - newBalanceOut) / FEE_DENOMINATOR;
+        amountOut = balances[indexOut] - newBalanceOut - fee;
+        
+        require(amountOut >= _minAmountOut, "Slippage limit reached");
+        
+        // Update balances
+        balances[indexIn] = newBalanceIn;
+        balances[indexOut] = newBalanceOut + fee * adminFee / FEE_DENOMINATOR;
+        
+        // If destination is ZetaChain, transfer directly
+        if (_destinationChainId == 0) {
+            IERC20(_tokenOut).safeTransfer(_destinationAddress, amountOut);
+        } else {
+            // For cross-chain transfers, use ZRC20 withdraw
+            // Convert the address to bytes
+            bytes memory destinationAddressBytes = abi.encodePacked(_destinationAddress);
+            IZRC20(_tokenOut).withdraw(destinationAddressBytes, amountOut);
+        }
+        
+        emit CrossChainSwap(
+            msg.sender, 
+            _tokenIn, 
+            _tokenOut, 
+            _amountIn, 
+            amountOut,
+            _destinationChainId,
+            _destinationAddress
+        );
+        
         return amountOut;
     }
     

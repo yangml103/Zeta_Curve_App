@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./StablecoinPool.sol";
+import "@zetachain/protocol-contracts/contracts/evm/legacy/ZetaInterfaces.sol";
+import "./ZetaStablecoinPool.sol";
 import "./UnifiedStablecoin.sol";
 
 /**
@@ -16,9 +17,15 @@ contract PoolFactory is Ownable {
     uint256 public defaultSwapFee = 4; // 0.04%
     uint256 public defaultAdminFee = 5000; // 50% of swap fees
     
+    // ZetaChain connector for cross-chain messaging
+    address public zetaConnector;
+    
     // Mapping of created pools
     mapping(address => bool) public isPool;
     address[] public allPools;
+    
+    // Mapping of supported chains
+    mapping(uint256 => bool) public supportedChains;
     
     // Events
     event PoolCreated(
@@ -35,11 +42,26 @@ contract PoolFactory is Ownable {
         uint256 swapFee,
         uint256 adminFee
     );
+    
+    event ChainSupported(uint256 chainId, bool supported);
 
     /**
      * @dev Constructor to initialize the factory
+     * @param _zetaConnector Address of the ZetaChain connector
      */
-    constructor() Ownable(msg.sender) {}
+    constructor(address _zetaConnector) Ownable(msg.sender) {
+        zetaConnector = _zetaConnector;
+    }
+    
+    /**
+     * @dev Set supported chains
+     * @param chainId Chain ID to set support for
+     * @param supported Whether the chain is supported
+     */
+    function setSupportedChain(uint256 chainId, bool supported) external onlyOwner {
+        supportedChains[chainId] = supported;
+        emit ChainSupported(chainId, supported);
+    }
     
     /**
      * @dev Create a new StablecoinPool with default parameters
@@ -86,7 +108,7 @@ contract PoolFactory is Ownable {
         require(_tokens.length >= 2, "At least 2 tokens required");
         
         // Create LP token (UnifiedStablecoin)
-        UnifiedStablecoin _lpToken = new UnifiedStablecoin();
+        UnifiedStablecoin _lpToken = new UnifiedStablecoin(zetaConnector);
         _lpToken.initialize(_lpTokenName, _lpTokenSymbol);
         
         // Create pool
@@ -95,7 +117,8 @@ contract PoolFactory is Ownable {
             _amplificationParameter,
             _swapFee,
             _adminFee,
-            address(_lpToken)
+            address(_lpToken),
+            zetaConnector
         );
         
         // Transfer ownership of LP token to the pool
@@ -145,5 +168,44 @@ contract PoolFactory is Ownable {
      */
     function getPoolCount() external view returns (uint256) {
         return allPools.length;
+    }
+    
+    /**
+     * @dev Create a pool on a remote chain through ZetaChain
+     * @param chainId The chain ID to create the pool on
+     * @param tokenAddresses Array of token addresses on the remote chain
+     * @param lpTokenName Name of the LP token
+     * @param lpTokenSymbol Symbol of the LP token
+     */
+    function createRemotePool(
+        uint256 chainId,
+        address[] memory tokenAddresses,
+        string memory lpTokenName,
+        string memory lpTokenSymbol
+    ) external onlyOwner {
+        require(supportedChains[chainId], "Chain not supported");
+        
+        // Encode the creation parameters
+        bytes memory message = abi.encode(
+            tokenAddresses,
+            lpTokenName,
+            lpTokenSymbol,
+            defaultAmplificationParameter,
+            defaultSwapFee,
+            defaultAdminFee
+        );
+        
+        // Send cross-chain message to create pool
+        // This is a simplified example - actual implementation would depend on ZetaChain's APIs
+        ZetaInterfaces.SendInput memory input = ZetaInterfaces.SendInput({
+            destinationChainId: chainId,
+            destinationAddress: abi.encodePacked(address(0)), // This would be the address of a factory contract on the remote chain
+            destinationGasLimit: 300000, // Adjust as needed
+            message: message,
+            zetaValueAndGas: 0, // Adjust as needed
+            zetaParams: ""
+        });
+        
+        ZetaConnector(zetaConnector).send(input);
     }
 } 
