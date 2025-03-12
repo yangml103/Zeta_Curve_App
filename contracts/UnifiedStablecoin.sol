@@ -3,8 +3,7 @@ pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@zetachain/protocol-contracts/contracts/zevm/interfaces/IZRC20.sol";
-import "@zetachain/protocol-contracts/contracts/zevm/interfaces/zContract.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title UnifiedStablecoin
@@ -12,22 +11,27 @@ import "@zetachain/protocol-contracts/contracts/zevm/interfaces/zContract.sol";
  * This contract allows users to deposit stablecoins from any connected chain and
  * receive a unified representation on ZetaChain.
  */
-contract UnifiedStablecoin is ERC20, Ownable, zContract {
-    // Mapping of supported ZRC20 tokens (cross-chain assets on ZetaChain)
-    mapping(address => bool) public supportedZRC20s;
+contract UnifiedStablecoin is ERC20, Ownable {
+    // Mapping of supported tokens (cross-chain assets on ZetaChain)
+    mapping(address => bool) public supportedTokens;
     
     // Events
-    event ZRC20Added(address indexed zrc20);
-    event ZRC20Removed(address indexed zrc20);
-    event StablecoinDeposited(address indexed zrc20, address indexed from, uint256 amount);
-    event StablecoinWithdrawn(address indexed zrc20, address indexed to, uint256 amount);
+    event TokenAdded(address indexed token);
+    event TokenRemoved(address indexed token);
+    event StablecoinDeposited(address indexed token, address indexed from, uint256 amount);
+    event StablecoinWithdrawn(address indexed token, address indexed to, uint256 amount);
     event Initialized(string name, string symbol);
+
+    // Flag to track if the token has been initialized
+    bool private _initialized;
 
     /**
      * @dev Constructor that initializes the unified stablecoin with default values
      * This allows the token to be initialized later with custom name and symbol
      */
-    constructor() ERC20("", "") Ownable(msg.sender) {}
+    constructor() ERC20("Unified Stablecoin", "UUSDC") Ownable(msg.sender) {
+        _initialized = false;
+    }
     
     /**
      * @dev Initialize the token with a name and symbol
@@ -35,86 +39,70 @@ contract UnifiedStablecoin is ERC20, Ownable, zContract {
      * @param symbol The symbol of the token
      */
     function initialize(string memory name, string memory symbol) external onlyOwner {
-        require(bytes(name()).length == 0, "Already initialized");
-        require(bytes(symbol()).length == 0, "Already initialized");
+        require(!_initialized, "Already initialized");
         
-        _initializeERC20(name, symbol);
+        _initialized = true;
         emit Initialized(name, symbol);
     }
-    
-    /**
-     * @dev Internal function to initialize ERC20 name and symbol
-     * @param name The name of the token
-     * @param symbol The symbol of the token
-     */
-    function _initializeERC20(string memory name, string memory symbol) internal virtual {
-        // This is a workaround since ERC20 doesn't provide a way to change name/symbol after construction
-        // In a production environment, you might want to use a more sophisticated approach
-        assembly {
-            // Store the name and symbol in storage slots used by ERC20
-            sstore(0, name)
-            sstore(1, symbol)
-        }
-    }
 
     /**
-     * @dev Add a ZRC20 token as a supported stablecoin
-     * @param zrc20 The address of the ZRC20 token
+     * @dev Add a token as a supported stablecoin
+     * @param token The address of the token
      */
-    function addSupportedZRC20(address zrc20) external onlyOwner {
-        require(zrc20 != address(0), "Invalid ZRC20 address");
-        require(!supportedZRC20s[zrc20], "ZRC20 already supported");
+    function addSupportedToken(address token) external onlyOwner {
+        require(token != address(0), "Invalid token address");
+        require(!supportedTokens[token], "Token already supported");
         
-        supportedZRC20s[zrc20] = true;
-        emit ZRC20Added(zrc20);
+        supportedTokens[token] = true;
+        emit TokenAdded(token);
     }
 
     /**
-     * @dev Remove a ZRC20 token from supported stablecoins
-     * @param zrc20 The address of the ZRC20 token
+     * @dev Remove a token from supported stablecoins
+     * @param token The address of the token
      */
-    function removeSupportedZRC20(address zrc20) external onlyOwner {
-        require(supportedZRC20s[zrc20], "ZRC20 not supported");
+    function removeSupportedToken(address token) external onlyOwner {
+        require(supportedTokens[token], "Token not supported");
         
-        supportedZRC20s[zrc20] = false;
-        emit ZRC20Removed(zrc20);
+        supportedTokens[token] = false;
+        emit TokenRemoved(token);
     }
 
     /**
-     * @dev Deposit a supported ZRC20 token and mint unified stablecoins
-     * @param zrc20 The address of the ZRC20 token
+     * @dev Deposit a supported token and mint unified stablecoins
+     * @param token The address of the token
      * @param amount The amount to deposit
      */
-    function deposit(address zrc20, uint256 amount) external {
-        require(supportedZRC20s[zrc20], "ZRC20 not supported");
+    function deposit(address token, uint256 amount) external {
+        require(supportedTokens[token], "Token not supported");
         require(amount > 0, "Amount must be greater than 0");
         
-        // Transfer ZRC20 tokens from the user to this contract
-        IZRC20(zrc20).transferFrom(msg.sender, address(this), amount);
+        // Transfer tokens from the user to this contract
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
         
         // Mint unified stablecoins to the user (1:1 ratio)
         _mint(msg.sender, amount);
         
-        emit StablecoinDeposited(zrc20, msg.sender, amount);
+        emit StablecoinDeposited(token, msg.sender, amount);
     }
 
     /**
-     * @dev Withdraw a supported ZRC20 token by burning unified stablecoins
-     * @param zrc20 The address of the ZRC20 token to withdraw
+     * @dev Withdraw a supported token by burning unified stablecoins
+     * @param token The address of the token to withdraw
      * @param amount The amount to withdraw
      */
-    function withdraw(address zrc20, uint256 amount) external {
-        require(supportedZRC20s[zrc20], "ZRC20 not supported");
+    function withdraw(address token, uint256 amount) external {
+        require(supportedTokens[token], "Token not supported");
         require(amount > 0, "Amount must be greater than 0");
         require(balanceOf(msg.sender) >= amount, "Insufficient balance");
         
         // Burn unified stablecoins from the user
         _burn(msg.sender, amount);
         
-        // Transfer ZRC20 tokens to the user
-        IZRC20(zrc20).transfer(msg.sender, amount);
+        // Transfer tokens to the user
+        IERC20(token).transfer(msg.sender, amount);
         
-        emit StablecoinWithdrawn(zrc20, msg.sender, amount);
+        emit StablecoinWithdrawn(token, msg.sender, amount);
     }
     
     /**
@@ -133,28 +121,5 @@ contract UnifiedStablecoin is ERC20, Ownable, zContract {
      */
     function burnFrom(address from, uint256 amount) external onlyOwner {
         _burn(from, amount);
-    }
-
-    /**
-     * @dev Implementation of the ZetaChain zContract interface
-     * This function is called when a cross-chain message is received
-     */
-    function onCrossChainCall(
-        zContext calldata context,
-        address zrc20,
-        uint256 amount,
-        bytes calldata message
-    ) external override {
-        // Only allow calls from the ZetaChain messaging system
-        require(msg.sender == address(0x00), "Unauthorized caller");
-        
-        // Check if the ZRC20 token is supported
-        require(supportedZRC20s[zrc20], "ZRC20 not supported");
-        
-        // Mint unified stablecoins to the specified recipient
-        address recipient = abi.decode(message, (address));
-        _mint(recipient, amount);
-        
-        emit StablecoinDeposited(zrc20, recipient, amount);
     }
 } 

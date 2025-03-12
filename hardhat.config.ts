@@ -1,6 +1,5 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
-import "@zetachain/toolkit/hardhat";
 import { config as dotenvConfig } from "dotenv";
 import { resolve } from "path";
 
@@ -8,7 +7,7 @@ import { resolve } from "path";
 dotenvConfig({ path: resolve(__dirname, ".env") });
 
 // Get private key from environment variables or use a default one for testing
-const PRIVATE_KEY = process.env.PRIVATE_KEY || "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const PRIVATE_KEY = process.env.PRIVATE_KEY || null;
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -24,13 +23,13 @@ const config: HardhatUserConfig = {
     // ZetaChain testnet
     "zetachain-testnet": {
       url: "https://zetachain-athens-evm.blockpi.network/v1/rpc/public",
-      accounts: [PRIVATE_KEY],
+      accounts: [`0x${PRIVATE_KEY}`],
       chainId: 7001,
     },
     // ZetaChain mainnet
     "zetachain-mainnet": {
       url: "https://zetachain-evm.blockpi.network/v1/rpc/public",
-      accounts: [PRIVATE_KEY],
+      accounts: [`0x${PRIVATE_KEY}`],
       chainId: 7000,
     },
     // Local development network

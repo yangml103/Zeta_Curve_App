@@ -1,7 +1,7 @@
 import { ethers } from "hardhat";
 
 // This script assumes you have already deployed the PoolFactory contract
-// and have ZRC20 tokens available on ZetaChain
+// and have tokens available on ZetaChain
 
 async function main() {
   console.log("Creating a new stablecoin pool...");
@@ -12,25 +12,25 @@ async function main() {
     throw new Error("Please set FACTORY_ADDRESS in your .env file");
   }
 
-  // Get ZRC20 token addresses (these would be the ZetaChain representations of cross-chain stablecoins)
-  // For example, USDC on Ethereum, BSC, etc.
-  const ZRC20_USDC_ETH = process.env.ZRC20_USDC_ETH || "";
-  const ZRC20_USDC_BSC = process.env.ZRC20_USDC_BSC || "";
+  // Get token addresses (these would be the stablecoin tokens on ZetaChain)
+  // For example, USDC, USDT, etc.
+  const TOKEN1_ADDRESS = process.env.TOKEN1_ADDRESS || "";
+  const TOKEN2_ADDRESS = process.env.TOKEN2_ADDRESS || "";
   
-  if (!ZRC20_USDC_ETH || !ZRC20_USDC_BSC) {
-    throw new Error("Please set ZRC20 token addresses in your .env file");
+  if (!TOKEN1_ADDRESS || !TOKEN2_ADDRESS) {
+    throw new Error("Please set TOKEN1_ADDRESS and TOKEN2_ADDRESS in your .env file");
   }
 
   // Get the PoolFactory contract
   const factory = await ethers.getContractAt("PoolFactory", FACTORY_ADDRESS);
 
-  // Create a new pool with the ZRC20 tokens
-  console.log("Creating pool with tokens:", [ZRC20_USDC_ETH, ZRC20_USDC_BSC]);
+  // Create a new pool with the tokens
+  console.log("Creating pool with tokens:", [TOKEN1_ADDRESS, TOKEN2_ADDRESS]);
   
   const tx = await factory.createPool(
-    [ZRC20_USDC_ETH, ZRC20_USDC_BSC],
-    "Unified USDC LP Token",
-    "UUSDC-LP"
+    [TOKEN1_ADDRESS, TOKEN2_ADDRESS],
+    "Stablecoin LP Token",
+    "SLP"
   );
 
   console.log("Transaction sent:", tx.hash);
@@ -38,7 +38,8 @@ async function main() {
   
   // Get the number of pools to find the latest one
   const poolCount = await factory.getPoolCount();
-  const poolAddress = await factory.allPools(poolCount - 1);
+  const lastIndex = poolCount - 1n;
+  const poolAddress = await factory.allPools(lastIndex);
   
   console.log(`New pool created at address: ${poolAddress}`);
   console.log("Pool creation completed successfully!");
