@@ -74,36 +74,49 @@ The contracts have been enhanced to leverage ZetaChain's cross-chain capabilitie
    ZETA_CONNECTOR_ADDRESS=0x239e96c8f17C85c30100AC26F635Ea15f23E9c67
    ```
 
-### Deployment
+### Available Scripts
 
-Deploy the contracts to ZetaChain testnet:
+The project includes the following scripts for interacting with the ZetaChain testnet:
 
+#### Deployment
 ```
 npx hardhat run scripts/deploy-zeta-testnet.ts --network zetachain-testnet
 ```
 
-### Creating a Pool
-
-Create a pool with ZRC20 tokens:
-
+#### Working with ZRC20 Tokens
 ```
+# Create a pool with ZRC20 tokens
 npx hardhat run scripts/create-zrc20-pool.ts --network zetachain-testnet
+
+# Add liquidity to a ZRC20 pool
+npx hardhat run scripts/add-zrc20-liquidity.ts --network zetachain-testnet
+
+# Perform cross-chain swaps
+npx hardhat run scripts/cross-chain-swap.ts --network zetachain-testnet
 ```
 
-### Adding Liquidity
-
-Add liquidity to the pool:
-
+#### Working with Mock Tokens (for testing)
 ```
+# Mint mock ZRC20 tokens
+npx hardhat run scripts/mint-mock-zrc20.ts --network zetachain-testnet
+
+# Create a pool with mock tokens
+npx hardhat run scripts/create-mock-pool.ts --network zetachain-testnet
+
+# Add liquidity to a mock pool
 npx hardhat run scripts/add-mock-liquidity.ts --network zetachain-testnet
-```
 
-### Swapping Tokens
-
-Swap tokens in the pool:
-
-```
+# Swap tokens in a mock pool
 npx hardhat run scripts/swap-mock-tokens.ts --network zetachain-testnet
+```
+
+#### Utility Scripts
+```
+# Check token balances
+npx hardhat run scripts/check-balances.ts --network zetachain-testnet
+
+# Check pool information
+npx hardhat run scripts/check-pool-info.ts --network zetachain-testnet
 ```
 
 ## License
