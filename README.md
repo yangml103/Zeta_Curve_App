@@ -1,116 +1,124 @@
-# ZetaChain Curve-Like Pool
+# ZetaChain Curve-like Pool
 
-A Curve-like stablecoin pool implementation on ZetaChain that enables cross-chain stablecoin swaps with low slippage.
+A Curve-like stablecoin pool implementation for ZetaChain, enabling cross-chain stablecoin swaps with minimal slippage.
 
 ## Overview
 
-This project implements a Curve-like stablecoin pool on ZetaChain, allowing users to:
+This project implements a Curve-like stablecoin pool on ZetaChain, allowing for efficient swapping of stablecoins from different chains. The implementation includes:
 
-1. Deposit stablecoins from any connected chain and receive a unified representation on ZetaChain
-2. Swap between different stablecoins with low slippage using the StableSwap invariant
-3. Provide liquidity to the pool and earn fees
-4. Withdraw stablecoins to any connected chain
+1. A `StablecoinPool` contract that implements the Curve stableswap algorithm
+2. A `PoolFactory` contract for creating new pools
+3. ZetaChain integration for cross-chain functionality
 
-The key advantage of building on ZetaChain is that it natively supports cross-chain assets, eliminating the need for complex bridging solutions.
+## Features
 
-## Architecture
+- Efficient stablecoin swaps with minimal slippage
+- Support for ZRC20 tokens (ZetaChain's cross-chain token standard)
+- Cross-chain liquidity provision and swaps
+- Factory pattern for easy pool creation
 
-The project consists of three main contracts:
+## Testing on ZetaChain Athens Testnet
 
-1. **UnifiedStablecoin**: An ERC20 token that represents the unified stablecoin on ZetaChain. Users can deposit stablecoins from any connected chain and receive this token.
+We've successfully tested the following functionality on the ZetaChain Athens testnet:
 
-2. **StablecoinPool**: A Curve-like pool that allows swapping between different stablecoins with low slippage. It uses the StableSwap invariant (x^3*y + y^3*x >= k) for efficient stablecoin swaps.
+### 1. ZRC20 Pool Creation and Testing
 
-3. **PoolFactory**: A factory contract for creating new stablecoin pools with different tokens and parameters.
+- Created a pool with ZRC20 tokens (USDC from Sepolia and BSC)
+- Pool address: `0xCC1a110e6595899e56273ba440c85F3e49c494a1`
+
+### 2. Mock Token Testing
+
+Since we don't have actual ZRC20 tokens for testing, we created mock tokens to simulate the behavior:
+
+- Created mock tokens to represent ZRC20 tokens:
+  - Mock USDC Sepolia: `0x34732807A7FE22f336e8e39227e15e7FD6a78f44`
+  - Mock USDC BSC: `0x63952976B47916b60bFFB975b1129dA5D06b4b64`
+- Created a pool with these mock tokens: `0xC4F0CA2882BB1D589946a3C0ed7C3E482410126f`
+- Added liquidity to the pool (100 tokens of each)
+- Swapped tokens in the pool (10 Mock USDC Sepolia for ~9.995 Mock USDC BSC)
+- Verified pool information and balances
+
+## ZetaChain Integration
+
+The contracts have been enhanced to leverage ZetaChain's cross-chain capabilities:
+
+- Integration with ZRC20 tokens for cross-chain asset representation
+- Use of ZetaChain's connector for cross-chain messaging
+- Support for creating pools with tokens from different chains
+- Cross-chain swaps through ZetaChain's messaging system
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js v16 or higher
-- npm or yarn
+- Node.js (v16+)
 - Hardhat
+- ZetaChain wallet with testnet ZETA tokens
 
 ### Installation
 
 1. Clone the repository:
-```bash
-git clone https://github.com/yangml103/Zeta_Curve_App.git
-cd Zeta_Curve_App
-```
+   ```
+   git clone https://github.com/yourusername/zeta-curve-pool.git
+   cd zeta-curve-pool
+   ```
 
 2. Install dependencies:
-```bash
-npm install
+   ```
+   npm install
+   ```
+
+3. Create a `.env` file with your configuration:
+   ```
+   PRIVATE_KEY=your_private_key
+   ZETA_CONNECTOR_ADDRESS=0x239e96c8f17C85c30100AC26F635Ea15f23E9c67
+   ```
+
+### Available Scripts
+
+The project includes the following scripts for interacting with the ZetaChain testnet:
+
+#### Deployment
+```
+npx hardhat run scripts/deploy-zeta-testnet.ts --network zetachain-testnet
 ```
 
-3. Create a `.env` file with your private key and other configuration:
+#### Working with ZRC20 Tokens
 ```
-PRIVATE_KEY=your_private_key_here
-ETHERSCAN_API_KEY=your_etherscan_api_key_here
-```
+# Create a pool with ZRC20 tokens
+npx hardhat run scripts/create-zrc20-pool.ts --network zetachain-testnet
 
-### Deployment
+# Add liquidity to a ZRC20 pool
+npx hardhat run scripts/add-zrc20-liquidity.ts --network zetachain-testnet
 
-1. Deploy the contracts to ZetaChain testnet:
-```bash
-npx hardhat run scripts/deploy.ts --network zetachain-testnet
-```
-
-2. Create a pool with ZRC20 tokens:
-```bash
-# First, add the factory address and ZRC20 token addresses to your .env file
-FACTORY_ADDRESS=deployed_factory_address
-ZRC20_USDC_ETH=zrc20_usdc_eth_address
-ZRC20_USDC_BSC=zrc20_usdc_bsc_address
-
-# Then run the create-pool script
-npx hardhat run scripts/create-pool.ts --network zetachain-testnet
+# Perform cross-chain swaps
+npx hardhat run scripts/cross-chain-swap.ts --network zetachain-testnet
 ```
 
-## Usage
+#### Working with Mock Tokens (for testing)
+```
+# Mint mock ZRC20 tokens
+npx hardhat run scripts/mint-mock-zrc20.ts --network zetachain-testnet
 
-### Depositing Stablecoins
+# Create a pool with mock tokens
+npx hardhat run scripts/create-mock-pool.ts --network zetachain-testnet
 
-Users can deposit stablecoins from any connected chain to ZetaChain. The process is as follows:
+# Add liquidity to a mock pool
+npx hardhat run scripts/add-mock-liquidity.ts --network zetachain-testnet
 
-1. User initiates a transaction on the source chain (e.g., Ethereum) to send USDC to ZetaChain
-2. ZetaChain receives the USDC and mints the equivalent amount of UnifiedStablecoin to the user
-3. The user now has UnifiedStablecoin on ZetaChain that can be used in the stablecoin pool
+# Swap tokens in a mock pool
+npx hardhat run scripts/swap-mock-tokens.ts --network zetachain-testnet
+```
 
-### Swapping Stablecoins
+#### Utility Scripts
+```
+# Check token balances
+npx hardhat run scripts/check-balances.ts --network zetachain-testnet
 
-Users can swap between different stablecoins in the pool with low slippage:
-
-1. User approves the pool contract to spend their stablecoins
-2. User calls the `swap` function with the input token, output token, and amount
-3. The pool calculates the output amount based on the StableSwap invariant
-4. The user receives the output stablecoins
-
-### Providing Liquidity
-
-Users can provide liquidity to the pool and earn fees:
-
-1. User approves the pool contract to spend their stablecoins
-2. User calls the `addLiquidity` function with the amounts of each token
-3. The pool mints LP tokens to the user representing their share of the pool
-
-### Withdrawing Stablecoins
-
-Users can withdraw their stablecoins to any connected chain:
-
-1. User calls the `withdraw` function on the UnifiedStablecoin contract
-2. The contract burns the UnifiedStablecoin and releases the underlying stablecoin to the user
-3. The user can then bridge the stablecoin back to their desired chain
-
-## Testing
-
-Run the tests with:
-
-```bash
-npx hardhat test
+# Check pool information
+npx hardhat run scripts/check-pool-info.ts --network zetachain-testnet
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT

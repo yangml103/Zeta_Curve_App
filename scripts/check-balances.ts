@@ -1,45 +1,69 @@
 import { ethers } from "hardhat";
+import * as dotenv from "dotenv";
+
+dotenv.config();
 
 async function main() {
   console.log("Checking token balances...");
 
-  // Get addresses from environment
-  const TOKEN1_ADDRESS = process.env.TOKEN1_ADDRESS || "";
-  const TOKEN2_ADDRESS = process.env.TOKEN2_ADDRESS || "";
-  const POOL_ADDRESS = process.env.POOL_ADDRESS || "";
-  
-  if (!TOKEN1_ADDRESS || !TOKEN2_ADDRESS) {
-    throw new Error("Please set TOKEN1_ADDRESS and TOKEN2_ADDRESS in your .env file");
-  }
-
   // Get the signer
   const [signer] = await ethers.getSigners();
-  console.log(`Checking balances for account: ${signer.address}`);
+  console.log(`Account address: ${signer.address}`);
 
-  // Get the token contracts
-  const token1 = await ethers.getContractAt("MockToken", TOKEN1_ADDRESS);
-  const token2 = await ethers.getContractAt("MockToken", TOKEN2_ADDRESS);
-  
-  // Check token balances
-  const token1Balance = await token1.balanceOf(signer.address);
-  const token2Balance = await token2.balanceOf(signer.address);
-  
-  console.log(`Token 1 (${await token1.symbol()}) balance: ${ethers.formatUnits(token1Balance, 18)}`);
-  console.log(`Token 2 (${await token2.symbol()}) balance: ${ethers.formatUnits(token2Balance, 18)}`);
-  
-  // Check token allowances for the pool
-  if (POOL_ADDRESS) {
-    const token1Allowance = await token1.allowance(signer.address, POOL_ADDRESS);
-    const token2Allowance = await token2.allowance(signer.address, POOL_ADDRESS);
-    
-    console.log(`Token 1 allowance for pool: ${ethers.formatUnits(token1Allowance, 18)}`);
-    console.log(`Token 2 allowance for pool: ${ethers.formatUnits(token2Allowance, 18)}`);
+  // Check ETH balance
+  const ethBalance = await ethers.provider.getBalance(signer.address);
+  console.log(`ETH balance: ${ethers.formatEther(ethBalance)} ETH`);
+
+  // Get ZRC20 token addresses
+  const usdcSepoliaAddress = process.env.USDC_SEPOLIA_ADDRESS;
+  const usdcBscAddress = process.env.USDC_BSC_ADDRESS;
+  const mockUsdcAddress = process.env.MOCK_USDC_ADDRESS;
+  const mockUsdtAddress = process.env.MOCK_USDT_ADDRESS;
+
+  // Check ZRC20 token balances
+  if (usdcSepoliaAddress) {
+    const usdcSepolia = await ethers.getContractAt("IERC20", usdcSepoliaAddress);
+    const usdcSepoliaBalance = await usdcSepolia.balanceOf(signer.address);
+    console.log(`USDC Sepolia (ZRC20) balance: ${ethers.formatUnits(usdcSepoliaBalance, 6)} USDC`);
+  }
+
+  if (usdcBscAddress) {
+    const usdcBsc = await ethers.getContractAt("IERC20", usdcBscAddress);
+    const usdcBscBalance = await usdcBsc.balanceOf(signer.address);
+    console.log(`USDC BSC (ZRC20) balance: ${ethers.formatUnits(usdcBscBalance, 6)} USDC`);
+  }
+
+  // Check mock token balances
+  if (mockUsdcAddress) {
+    const mockUsdc = await ethers.getContractAt("IERC20", mockUsdcAddress);
+    const mockUsdcBalance = await mockUsdc.balanceOf(signer.address);
+    console.log(`Mock USDC balance: ${ethers.formatEther(mockUsdcBalance)} mUSDC`);
+  }
+
+  if (mockUsdtAddress) {
+    const mockUsdt = await ethers.getContractAt("IERC20", mockUsdtAddress);
+    const mockUsdtBalance = await mockUsdt.balanceOf(signer.address);
+    console.log(`Mock USDT balance: ${ethers.formatEther(mockUsdtBalance)} mUSDT`);
+  }
+
+  // Check pool LP token balance if pool exists
+  const poolAddress = process.env.POOL_ADDRESS;
+  if (poolAddress) {
+    try {
+      const pool = await ethers.getContractAt("StablecoinPool", poolAddress);
+      const lpTokenAddress = await pool.lpToken();
+      const lpToken = await ethers.getContractAt("IERC20", lpTokenAddress);
+      const lpBalance = await lpToken.balanceOf(signer.address);
+      console.log(`LP Token balance: ${ethers.formatEther(lpBalance)} LP`);
+    } catch (error) {
+      console.log("Could not check LP token balance");
+    }
   }
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-}); 
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  }); 
