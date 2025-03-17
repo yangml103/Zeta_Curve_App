@@ -196,7 +196,6 @@ contract PoolFactory is Ownable {
         );
         
         // Send cross-chain message to create pool
-        // This is a simplified example - actual implementation would depend on ZetaChain's APIs
         ZetaInterfaces.SendInput memory input = ZetaInterfaces.SendInput({
             destinationChainId: chainId,
             destinationAddress: abi.encodePacked(address(0)), // This would be the address of a factory contract on the remote chain
