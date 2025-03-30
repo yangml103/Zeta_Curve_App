@@ -1,0 +1,1 @@
+New version of Zeta curve app after speaking with Panruo/Denis
