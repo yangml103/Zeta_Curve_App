@@ -7,13 +7,14 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@zetachain/protocol-contracts/contracts/zevm/interfaces/IZRC20.sol";
 import "@zetachain/protocol-contracts/contracts/zevm/interfaces/zeta.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 
 /**
  * @title OmniUSDT
  * @dev A cross-chain unified USDT token that represents a share in the Curve-like pool.
  * This token can be used to redeem USDT on any chain through ZetaChain's Gateway.
  */
-contract OmniUSDT is ERC20, Ownable {
+contract OmniUSDT is ERC20, Ownable, Pausable {
     using SafeERC20 for IERC20;
     
     // ZetaChain Token for handling cross-chain fees
@@ -24,6 +25,9 @@ contract OmniUSDT is ERC20, Ownable {
     
     // Mapping of supported chain IDs
     mapping(uint256 => bool) public supportedChains;
+    
+    // Mapping of authorized messengers
+    mapping(address => bool) public authorizedMessengers;
     
     // Events
     event ZRC20Added(address indexed token);
@@ -38,8 +42,13 @@ contract OmniUSDT is ERC20, Ownable {
     event CrossChainReceived(
         address indexed to,
         uint256 amount,
-        uint256 sourceChainId
+        uint256 sourceChainId,
+        address sourceAddress,
+        bytes32 messageId
     );
+    
+    // Add this to OmniUSDT.sol
+    uint256 public maxTransferAmount;
     
     /**
      * @dev Constructor to initialize the token
@@ -114,36 +123,48 @@ contract OmniUSDT is ERC20, Ownable {
         uint256 _amount,
         uint256 _destinationChainId,
         bytes calldata _destinationAddress
-    ) external {
+    ) external whenNotPaused {
         require(supportedChains[_destinationChainId], "Chain not supported");
         require(_amount > 0, "Invalid amount");
         require(balanceOf(msg.sender) >= _amount, "Insufficient balance");
+        require(_amount <= maxTransferAmount, "Amount exceeds maximum");
         
         // Burn tokens from sender
         _burn(msg.sender, _amount);
         
         // Calculate gas fees for cross-chain transfer
-        uint256 gasFee = getGasFee(_destinationChainId);
+        uint256 gasLimit = getGasLimitForChain(_destinationChainId);
+        uint256 crossChainFee = zeta(zetaToken).getWeiPrice(gasLimit);
         
-        // Prepare message data for the cross-chain transaction
+        // The sender must pay the cross-chain fee in ZETA tokens
+        IERC20(zetaToken).safeTransferFrom(msg.sender, address(this), crossChainFee);
+        
+        // Prepare message data for cross-chain transaction
         bytes memory message = abi.encode(
             abi.decode(_destinationAddress, (address)),
             _amount
         );
         
-        // Emit an event for tracking purposes
+        // Approve ZetaChain Gateway to spend ZETA tokens for cross-chain message
+        IERC20(zetaToken).approve(address(zeta(zetaToken)), crossChainFee);
+        
+        // Send cross-chain message using ZetaConnector
+        zeta(zetaToken).send(
+            _destinationChainId,
+            _destinationAddress,
+            message,
+            crossChainFee,
+            gasLimit
+        );
+        
         emit CrossChainTransfer(
             msg.sender,
             _destinationAddress,
             _amount,
             _destinationChainId
         );
-        
-        // In a real implementation, here we would call Zeta Gateway's API to
-        // facilitate the cross-chain transfer using CCIP
-        // For this MVP, we simply emit the event and burn the tokens
     }
-    
+        
     /**
      * @dev Receive tokens from another chain (called by ZetaChain Gateway)
      * @param _to Address to receive tokens
@@ -154,14 +175,16 @@ contract OmniUSDT is ERC20, Ownable {
         address _to,
         uint256 _amount,
         uint256 _sourceChainId
-    ) external onlyOwner {
+    ) external whenNotPaused {
+        // Only authorized messengers (like Zeta Gateway) can call this
+        require(authorizedMessengers[msg.sender], "Unauthorized messenger");
         require(_to != address(0), "Invalid recipient");
         require(_amount > 0, "Invalid amount");
         
         // Mint tokens to the recipient
         _mint(_to, _amount);
         
-        emit CrossChainReceived(_to, _amount, _sourceChainId);
+        emit CrossChainReceived(_to, _amount, _sourceChainId, address(0), bytes32(0));
     }
     
     /**
@@ -227,5 +250,73 @@ contract OmniUSDT is ERC20, Ownable {
         } else {
             return 300000; // Default
         }
+    }
+    
+    /**
+     * @dev Add an authorized messenger
+     * @param _messenger Address of the authorized messenger
+     */
+    function addAuthorizedMessenger(address _messenger) external onlyOwner {
+        authorizedMessengers[_messenger] = true;
+    }
+    
+    /**
+     * @dev Remove an authorized messenger
+     * @param _messenger Address of the authorized messenger
+     */
+    function removeAuthorizedMessenger(address _messenger) external onlyOwner {
+        authorizedMessengers[_messenger] = false;
+    }
+
+    // Add this interface to OmniUSDT.sol
+    interface ZetaReceiver {
+        function onZetaMessage(
+            uint256 sourceChainId, 
+            address sourceAddress, 
+            bytes calldata message
+        ) external;
+    }
+
+    // Implement the interface in OmniUSDT.sol
+    function onZetaMessage(
+        uint256 sourceChainId,
+        address sourceAddress,
+        bytes calldata message
+    ) external {
+        require(authorizedMessengers[msg.sender], "Unauthorized messenger");
+        
+        (address recipient, uint256 amount) = abi.decode(message, (address, uint256));
+        
+        // Create a unique messageId for tracking
+        bytes32 messageId = keccak256(abi.encodePacked(
+            sourceChainId,
+            sourceAddress,
+            recipient,
+            amount,
+            block.timestamp
+        ));
+        
+        _mint(recipient, amount);
+        
+        emit CrossChainReceived(
+            recipient,
+            amount,
+            sourceChainId,
+            sourceAddress,
+            messageId
+        );
+    }
+
+    // Add this function to OmniUSDT.sol
+    function setMaxTransferAmount(uint256 _amount) external onlyOwner {
+        maxTransferAmount = _amount;
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+    
+    function unpause() external onlyOwner {
+        _unpause();
     }
 } 

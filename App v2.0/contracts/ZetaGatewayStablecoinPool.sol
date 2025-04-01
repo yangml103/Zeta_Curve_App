@@ -303,20 +303,30 @@ contract ZetaGatewayStablecoinPool is Ownable, ReentrancyGuard {
         amountOut = _amountIn;
         require(amountOut >= _minAmountOut, "Slippage limit reached");
         
-        // Get the destination chain's gas limit based on chain ID
+        // Calculate cross-chain fee
         uint256 gasLimit = getGasLimitForChain(_destinationChainId);
-        
-        // Use Zeta Gateway for cross-chain transfer
-        // First, get ZETA approval to pay for the cross-chain fee
         uint256 crossChainFee = zeta(zetaToken).getWeiPrice(gasLimit);
         
-        // Use ZetaGateway.send for cross-chain transfer
-        // Mint LP tokens to the user on the destination chain
-        bytes memory message = abi.encode(msg.sender, amountOut);
+        // The sender must pay the cross-chain fee in ZETA tokens
+        IERC20(zetaToken).safeTransferFrom(msg.sender, address(this), crossChainFee);
         
-        // Call Zeta Gateway's send function
-        bool success = IZRC20(address(lpToken)).transfer(msg.sender, amountOut);
-        require(success, "Transfer failed");
+        // Prepare message data for cross-chain transaction
+        bytes memory message = abi.encode(
+            abi.decode(_destinationAddress, (address)),
+            amountOut
+        );
+        
+        // Approve ZetaChain Gateway to spend ZETA tokens for cross-chain message
+        IERC20(zetaToken).approve(address(zeta(zetaToken)), crossChainFee);
+        
+        // Send cross-chain message using ZetaConnector
+        zeta(zetaToken).send(
+            _destinationChainId,
+            _destinationAddress,
+            message,
+            crossChainFee,
+            gasLimit
+        );
         
         emit CrossChainSwap(
             msg.sender, 
