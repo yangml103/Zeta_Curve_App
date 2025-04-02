@@ -4,7 +4,7 @@ A Curve-like stablecoin pool implementation for ZetaChain using the Zeta Gateway
 
 ## Overview
 
-This project implements a Curve-like stablecoin pool on ZetaChain that uses the Zeta Gateway API (instead of the connector) for cross-chain functionality. This approach provides a more direct and efficient way to handle cross-chain operations. The implementation includes:
+This project implements a Curve-like stablecoin pool on ZetaChain that uses the Zeta Gateway API for cross-chain functionality. The implementation includes:
 
 1. A `ZetaGatewayStablecoinPool` contract that implements the Curve stableswap algorithm
 2. An `OmniUSDT` token that represents a share in the pool and can be redeemed for USDT on any chain
