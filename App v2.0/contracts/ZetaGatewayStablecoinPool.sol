@@ -51,13 +51,13 @@ contract ZetaGatewayStablecoinPool is Ownable, ReentrancyGuard {
     );
     
     event CrossChainSwap(
-        address indexed buyer,
+        address indexed sender,
+        bytes indexed destinationAddress,
         address indexed tokenIn,
-        address indexed tokenOut,
+        address tokenOut,
         uint256 amountIn,
         uint256 amountOut,
-        uint256 destinationChainId,
-        address destinationAddress
+        uint256 destinationChainId
     );
     
     event AddLiquidity(
@@ -77,6 +77,19 @@ contract ZetaGatewayStablecoinPool is Ownable, ReentrancyGuard {
         uint256 swapFee,
         uint256 adminFee
     );
+
+    event PoolInitialized(address factory);
+
+    event CrossChainReceive(
+        uint256 indexed sourceChainId,
+        bytes indexed sourceAddress,
+        address indexed recipient,
+        uint256 amount,
+        bytes32 messageId
+    );
+
+    bool public initialized;
+    address public factory;
 
     /**
      * @dev Constructor to create a new ZetaGatewayStablecoinPool
@@ -116,6 +129,29 @@ contract ZetaGatewayStablecoinPool is Ownable, ReentrancyGuard {
             tokenIndexes[_tokens[i]] = i;
             balances.push(0);
         }
+    }
+    
+    /**
+     * @dev Initialize the pool with the Zeta Gateway
+     * @param _factory Address of the factory contract
+     */
+    function initialize(address _factory) external {
+        require(!initialized, "Pool already initialized");
+        require(_factory != address(0), "Invalid factory address");
+        
+        factory = _factory;
+        
+        // Set up Zeta Gateway permissions
+        zeta(zetaToken).approve(address(zeta(zetaToken)), type(uint256).max);
+        
+        // Set up token approvals for the pool
+        for (uint256 i = 0; i < tokens.length; i++) {
+            IERC20(tokens[i]).approve(address(zeta(zetaToken)), type(uint256).max);
+        }
+        
+        initialized = true;
+        
+        emit PoolInitialized(_factory);
     }
     
     /**
@@ -272,36 +308,39 @@ contract ZetaGatewayStablecoinPool is Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Swap tokens across chains using ZetaChain Gateway
+     * @dev Swap tokens across chains using the Zeta Gateway
      * @param _tokenIn Address of the input token
-     * @param _amountIn Amount of input token
-     * @param _minAmountOut Minimum amount of output token
+     * @param _tokenOut Address of the output token
+     * @param _amountIn Amount of input tokens
+     * @param _minAmountOut Minimum amount of output tokens to receive
      * @param _destinationChainId Chain ID to receive tokens on
      * @param _destinationAddress Address to receive tokens on destination chain
-     * @return amountOut Amount of output token received
      */
     function crossChainSwap(
         address _tokenIn,
+        address _tokenOut,
         uint256 _amountIn,
         uint256 _minAmountOut,
         uint256 _destinationChainId,
         bytes calldata _destinationAddress
-    ) external nonReentrant returns (uint256 amountOut) {
+    ) external whenNotPaused {
+        require(initialized, "Pool not initialized");
         require(isToken[_tokenIn], "Invalid input token");
+        require(isToken[_tokenOut], "Invalid output token");
         require(_amountIn > 0, "Invalid amount");
+        require(supportedChains[_destinationChainId], "Unsupported chain");
         
-        // Calculate the swap locally first
-        uint256 indexIn = tokenIndexes[_tokenIn];
-        
-        // Transfer input token to the pool
+        // Transfer input tokens from sender to pool
         IERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
         
-        // Update balance
-        balances[indexIn] += _amountIn;
+        // Calculate the amount of output tokens
+        uint256 amountOut = calculateSwap(
+            getTokenIndex(_tokenIn),
+            getTokenIndex(_tokenOut),
+            _amountIn
+        );
         
-        // Get LP token (omniUSDT) amount to send (1:1 for this simplified example)
-        amountOut = _amountIn;
-        require(amountOut >= _minAmountOut, "Slippage limit reached");
+        require(amountOut >= _minAmountOut, "Insufficient output amount");
         
         // Calculate cross-chain fee
         uint256 gasLimit = getGasLimitForChain(_destinationChainId);
@@ -313,13 +352,14 @@ contract ZetaGatewayStablecoinPool is Ownable, ReentrancyGuard {
         // Prepare message data for cross-chain transaction
         bytes memory message = abi.encode(
             abi.decode(_destinationAddress, (address)),
-            amountOut
+            amountOut,
+            _tokenOut
         );
         
         // Approve ZetaChain Gateway to spend ZETA tokens for cross-chain message
         IERC20(zetaToken).approve(address(zeta(zetaToken)), crossChainFee);
         
-        // Send cross-chain message using ZetaConnector
+        // Send cross-chain message using Zeta Gateway
         zeta(zetaToken).send(
             _destinationChainId,
             _destinationAddress,
@@ -329,16 +369,14 @@ contract ZetaGatewayStablecoinPool is Ownable, ReentrancyGuard {
         );
         
         emit CrossChainSwap(
-            msg.sender, 
-            _tokenIn, 
-            address(lpToken), 
-            _amountIn, 
+            msg.sender,
+            _destinationAddress,
+            _tokenIn,
+            _tokenOut,
+            _amountIn,
             amountOut,
-            _destinationChainId,
-            abi.decode(_destinationAddress, (address))
+            _destinationChainId
         );
-        
-        return amountOut;
     }
     
     /**
@@ -501,5 +539,42 @@ contract ZetaGatewayStablecoinPool is Ownable, ReentrancyGuard {
         } else {
             return 300000; // Default
         }
+    }
+
+    /**
+     * @dev Receive cross-chain message from Zeta Gateway
+     * @param _sourceChainId Chain ID where the message originated
+     * @param _sourceAddress Address that sent the message
+     * @param _messageId Unique identifier for the message
+     * @param _message Encoded message data
+     */
+    function receiveCrossChain(
+        uint256 _sourceChainId,
+        bytes calldata _sourceAddress,
+        bytes32 _messageId,
+        bytes calldata _message
+    ) external override {
+        // Verify that the caller is the Zeta Gateway
+        require(msg.sender == address(zeta(zetaToken)), "Only Zeta Gateway can call this function");
+        
+        // Decode the message data
+        (address recipient, uint256 amount, address token) = abi.decode(_message, (address, uint256, address));
+        
+        // Validate the token is supported
+        require(isToken[token], "Token not supported");
+        
+        // Validate the source chain is supported
+        require(supportedChains[_sourceChainId], "Chain not supported");
+        
+        // Transfer tokens to the recipient
+        IERC20(token).safeTransfer(recipient, amount);
+        
+        emit CrossChainReceive(
+            _sourceChainId,
+            _sourceAddress,
+            recipient,
+            amount,
+            _messageId
+        );
     }
 } 

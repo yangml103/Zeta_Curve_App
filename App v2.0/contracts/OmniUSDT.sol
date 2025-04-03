@@ -34,16 +34,16 @@ contract OmniUSDT is ERC20, Ownable, Pausable {
     event ZRC20Removed(address indexed token);
     event ChainSupported(uint256 chainId, bool supported);
     event CrossChainTransfer(
-        address indexed from,
+        address indexed sender,
         bytes indexed destinationAddress,
         uint256 amount,
         uint256 destinationChainId
     );
-    event CrossChainReceived(
-        address indexed to,
+    event CrossChainReceive(
+        uint256 indexed sourceChainId,
+        bytes indexed sourceAddress,
+        address indexed recipient,
         uint256 amount,
-        uint256 sourceChainId,
-        address sourceAddress,
         bytes32 messageId
     );
     
@@ -114,9 +114,9 @@ contract OmniUSDT is ERC20, Ownable, Pausable {
     }
     
     /**
-     * @dev Transfer tokens across chains using ZetaChain Gateway
+     * @dev Transfer OmniUSDT tokens across chains
      * @param _amount Amount of tokens to transfer
-     * @param _destinationChainId Chain ID to send tokens to
+     * @param _destinationChainId Chain ID to transfer to
      * @param _destinationAddress Address to receive tokens on destination chain
      */
     function transferCrossChain(
@@ -127,12 +127,11 @@ contract OmniUSDT is ERC20, Ownable, Pausable {
         require(supportedChains[_destinationChainId], "Chain not supported");
         require(_amount > 0, "Invalid amount");
         require(balanceOf(msg.sender) >= _amount, "Insufficient balance");
-        require(_amount <= maxTransferAmount, "Amount exceeds maximum");
         
         // Burn tokens from sender
         _burn(msg.sender, _amount);
         
-        // Calculate gas fees for cross-chain transfer
+        // Calculate cross-chain fee
         uint256 gasLimit = getGasLimitForChain(_destinationChainId);
         uint256 crossChainFee = zeta(zetaToken).getWeiPrice(gasLimit);
         
@@ -148,7 +147,7 @@ contract OmniUSDT is ERC20, Ownable, Pausable {
         // Approve ZetaChain Gateway to spend ZETA tokens for cross-chain message
         IERC20(zetaToken).approve(address(zeta(zetaToken)), crossChainFee);
         
-        // Send cross-chain message using ZetaConnector
+        // Send cross-chain message using Zeta Gateway
         zeta(zetaToken).send(
             _destinationChainId,
             _destinationAddress,
@@ -164,27 +163,39 @@ contract OmniUSDT is ERC20, Ownable, Pausable {
             _destinationChainId
         );
     }
-        
+    
     /**
-     * @dev Receive tokens from another chain (called by ZetaChain Gateway)
-     * @param _to Address to receive tokens
-     * @param _amount Amount of tokens to receive
-     * @param _sourceChainId Chain ID the tokens came from
+     * @dev Receive cross-chain message from Zeta Gateway
+     * @param _sourceChainId Chain ID where the message originated
+     * @param _sourceAddress Address that sent the message
+     * @param _messageId Unique identifier for the message
+     * @param _message Encoded message data
      */
     function receiveCrossChain(
-        address _to,
-        uint256 _amount,
-        uint256 _sourceChainId
-    ) external whenNotPaused {
-        // Only authorized messengers (like Zeta Gateway) can call this
-        require(authorizedMessengers[msg.sender], "Unauthorized messenger");
-        require(_to != address(0), "Invalid recipient");
-        require(_amount > 0, "Invalid amount");
+        uint256 _sourceChainId,
+        bytes calldata _sourceAddress,
+        bytes32 _messageId,
+        bytes calldata _message
+    ) external override {
+        // Verify that the caller is the Zeta Gateway
+        require(msg.sender == address(zeta(zetaToken)), "Only Zeta Gateway can call this function");
+        
+        // Decode the message data
+        (address recipient, uint256 amount) = abi.decode(_message, (address, uint256));
+        
+        // Validate the source chain is supported
+        require(supportedChains[_sourceChainId], "Chain not supported");
         
         // Mint tokens to the recipient
-        _mint(_to, _amount);
+        _mint(recipient, amount);
         
-        emit CrossChainReceived(_to, _amount, _sourceChainId, address(0), bytes32(0));
+        emit CrossChainReceive(
+            _sourceChainId,
+            _sourceAddress,
+            recipient,
+            amount,
+            _messageId
+        );
     }
     
     /**
@@ -199,7 +210,7 @@ contract OmniUSDT is ERC20, Ownable, Pausable {
         address _token,
         uint256 _destinationChainId,
         bytes calldata _destinationAddress
-    ) external {
+    ) external whenNotPaused {
         require(supportedZRC20s[_token], "Token not supported");
         require(supportedChains[_destinationChainId], "Chain not supported");
         require(_amount > 0, "Invalid amount");
@@ -208,10 +219,31 @@ contract OmniUSDT is ERC20, Ownable, Pausable {
         // Burn OmniUSDT from sender
         _burn(msg.sender, _amount);
         
-        // For simplicity in this example, we assume the ZRC20 token withdrawal
-        // will handle sending the equivalent USDT to the destination chain
-        // In a real implementation, we would need to handle the token conversion
-        IZRC20(_token).withdraw(_destinationAddress, _amount);
+        // Calculate cross-chain fee
+        uint256 gasLimit = getGasLimitForChain(_destinationChainId);
+        uint256 crossChainFee = zeta(zetaToken).getWeiPrice(gasLimit);
+        
+        // The sender must pay the cross-chain fee in ZETA tokens
+        IERC20(zetaToken).safeTransferFrom(msg.sender, address(this), crossChainFee);
+        
+        // Prepare message data for cross-chain transaction
+        bytes memory message = abi.encode(
+            abi.decode(_destinationAddress, (address)),
+            _amount,
+            _token
+        );
+        
+        // Approve ZetaChain Gateway to spend ZETA tokens for cross-chain message
+        IERC20(zetaToken).approve(address(zeta(zetaToken)), crossChainFee);
+        
+        // Send cross-chain message using Zeta Gateway
+        zeta(zetaToken).send(
+            _destinationChainId,
+            _destinationAddress,
+            message,
+            crossChainFee,
+            gasLimit
+        );
         
         emit CrossChainTransfer(
             msg.sender,
@@ -298,11 +330,11 @@ contract OmniUSDT is ERC20, Ownable, Pausable {
         
         _mint(recipient, amount);
         
-        emit CrossChainReceived(
-            recipient,
-            amount,
+        emit CrossChainReceive(
             sourceChainId,
             sourceAddress,
+            recipient,
+            amount,
             messageId
         );
     }

@@ -30,11 +30,16 @@ contract GatewayPoolFactory is Ownable {
     // Events
     event PoolCreated(
         address indexed pool,
-        address indexed lpToken,
+        address indexed zetaToken,
         address[] tokens,
         uint256 amplificationParameter,
-        uint256 swapFee,
+        uint256 fee,
         uint256 adminFee
+    );
+    
+    event PoolInitialized(
+        address indexed pool,
+        address indexed factory
     );
     
     event DefaultParametersUpdated(
@@ -65,88 +70,56 @@ contract GatewayPoolFactory is Ownable {
     }
     
     /**
-     * @dev Create a new ZetaGatewayStablecoinPool with default parameters
-     * @param _tokens Array of token addresses for the pool
-     * @param _lpTokenName Name of the LP token
-     * @param _lpTokenSymbol Symbol of the LP token
-     * @return pool Address of the created pool
-     * @return lpToken Address of the LP token
+     * @dev Create a new stablecoin pool
+     * @param _tokens Array of ZRC20 token addresses to include in the pool
+     * @param _name Name of the pool
+     * @param _symbol Symbol of the pool
+     * @param _fee Fee in basis points (e.g., 4 = 0.04%)
+     * @param _adminFee Admin fee in basis points (e.g., 50 = 0.5%)
+     * @param _zetaToken Address of the ZETA token
      */
     function createPool(
-        address[] memory _tokens,
-        string memory _lpTokenName,
-        string memory _lpTokenSymbol
-    ) external returns (address pool, address lpToken) {
-        return createPoolWithParams(
-            _tokens,
-            _lpTokenName,
-            _lpTokenSymbol,
-            defaultAmplificationParameter,
-            defaultSwapFee,
-            defaultAdminFee
-        );
-    }
-    
-    /**
-     * @dev Create a new ZetaGatewayStablecoinPool with custom parameters
-     * @param _tokens Array of token addresses for the pool
-     * @param _lpTokenName Name of the LP token
-     * @param _lpTokenSymbol Symbol of the LP token
-     * @param _amplificationParameter Amplification parameter (A) * A_PRECISION
-     * @param _swapFee Fee taken on swaps (in basis points)
-     * @param _adminFee Percentage of swap fee taken as admin fee (in basis points)
-     * @return pool Address of the created pool
-     * @return lpToken Address of the LP token
-     */
-    function createPoolWithParams(
-        address[] memory _tokens,
-        string memory _lpTokenName,
-        string memory _lpTokenSymbol,
-        uint256 _amplificationParameter,
-        uint256 _swapFee,
-        uint256 _adminFee
-    ) public returns (address pool, address lpToken) {
-        require(_tokens.length >= 2, "At least 2 tokens required");
+        address[] calldata _tokens,
+        string calldata _name,
+        string calldata _symbol,
+        uint256 _fee,
+        uint256 _adminFee,
+        address _zetaToken
+    ) external returns (address) {
+        require(_tokens.length >= 2, "Pool must have at least 2 tokens");
+        require(_fee <= MAX_FEE, "Fee too high");
+        require(_adminFee <= MAX_ADMIN_FEE, "Admin fee too high");
+        require(_zetaToken != address(0), "Invalid ZETA token address");
         
-        // Create LP token (OmniUSDT)
-        OmniUSDT _lpToken = new OmniUSDT(
-            _lpTokenName,
-            _lpTokenSymbol,
-            zetaToken
-        );
-        
-        // Create pool
-        ZetaGatewayStablecoinPool _pool = new ZetaGatewayStablecoinPool(
+        // Create new pool
+        ZetaGatewayStablecoinPool pool = new ZetaGatewayStablecoinPool(
             _tokens,
-            _amplificationParameter,
-            _swapFee,
+            _name,
+            _symbol,
+            _fee,
             _adminFee,
-            address(_lpToken),
-            zetaToken
+            _zetaToken
         );
         
-        // Transfer ownership of LP token to the pool
-        _lpToken.transferOwnership(address(_pool));
+        // Initialize the pool with Zeta Gateway
+        pool.initialize(address(this));
         
-        // Add supported ZRC20 tokens to the LP token
-        for (uint256 i = 0; i < _tokens.length; i++) {
-            _lpToken.addSupportedZRC20(_tokens[i]);
-        }
-        
-        // Register pool
-        isPool[address(_pool)] = true;
-        allPools.push(address(_pool));
+        // Add pool to registry
+        allPools.push(address(pool));
+        isPool[address(pool)] = true;
         
         emit PoolCreated(
-            address(_pool),
-            address(_lpToken),
+            address(pool),
+            _zetaToken,
             _tokens,
-            _amplificationParameter,
-            _swapFee,
+            defaultAmplificationParameter,
+            _fee,
             _adminFee
         );
         
-        return (address(_pool), address(_lpToken));
+        emit PoolInitialized(address(pool), address(this));
+        
+        return address(pool);
     }
     
     /**
@@ -177,5 +150,31 @@ contract GatewayPoolFactory is Ownable {
      */
     function getPoolCount() external view returns (uint256) {
         return allPools.length;
+    }
+    
+    /**
+     * @dev Get all pools
+     * @return Array of pool addresses
+     */
+    function getAllPools() external view returns (address[] memory) {
+        return allPools;
+    }
+    
+    /**
+     * @dev Get pool by tokens
+     * @param _tokens Array of token addresses
+     * @return Pool address
+     */
+    function getPoolByTokens(address[] calldata _tokens) external view returns (address) {
+        return isPool[_tokens[0]] ? _tokens[0] : address(0);
+    }
+    
+    /**
+     * @dev Check if address is a pool
+     * @param _pool Address to check
+     * @return True if address is a pool
+     */
+    function isPool(address _pool) external view returns (bool) {
+        return isPool[_pool];
     }
 } 
