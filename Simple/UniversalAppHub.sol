@@ -2,7 +2,6 @@
 pragma solidity ^0.8.26;
 
 import "@zetachain/protocol-contracts/contracts/zevm/interfaces/UniversalContract.sol";
-import "@zetachain/protocol-contracts/contracts/zevm/interfaces/zeta.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -67,7 +66,7 @@ contract UniversalAppHub is UniversalContract, Ownable {
         address zrc20, // Address of the ZRC-20 token received (e.g., ZRC-20 ETH, ZRC-20 SOL)
         uint256 amount,
         bytes calldata message // Payload from the gateway call
-    ) external virtual override {
+    ) external virtual override onlyGateway{
         // Basic validation: Ensure the caller is the ZetaChain system contract (or expected gateway interface)
 
         // Log the details of the incoming deposit
