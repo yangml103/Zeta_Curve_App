@@ -1,15 +1,45 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import { Universal, MessageContext, RevertOptions, CallOptions } from "./Universal.sol"; // Relative import
+// import { Universal, MessageContext, RevertOptions, CallOptions } from "./Universal.sol"; // Removed import
 import { ICurveStableSwapNG } from "./interfaces/ICurveStableSwapNG.sol"; // Relative import
 import { SafeERC20, IERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IZRC20 } from "@zetachain/protocol-contracts/contracts/zevm/interfaces/IZRC20.sol";
 import { GatewayZEVM } from "@zetachain/protocol-contracts/contracts/zevm/GatewayZEVM.sol";
 
+// --- Structs (from ZetaChain Universal example) ---
+/// @dev Struct to store context information about the cross-chain message.
+struct MessageContext {
+    bytes sender; // The address of the sender on the source chain.
+    uint256 sourceChainId; // The chain ID of the source chain.
+    address destination; // The destination address of the message (this contract).
+    address gateway; // The address of the gateway contract.
+    address zrc20; // The address of the ZRC-20 token involved in the call.
+    uint256 gasLimit; // The gas limit for the call.
+}
 
-contract FluidUSDCUniversal is Universal {
+/// @dev Struct to store options for handling reverts on the destination chain.
+struct RevertOptions {
+    bool callRevert; // Whether to revert the call if the destination call reverts.
+    uint256 revertGasLimit; // The gas limit for the revert call.
+    bytes revertMessage; // The message to send back on revert.
+}
+
+/// @dev Struct to store options for making calls.
+struct CallOptions {
+    uint8 callType; // The type of call to make.
+    bytes to; // The recipient address for the call.
+    uint256 value; // The value to send with the call.
+    bytes data; // The data to send with the call.
+    uint256 gasLimit; // The gas limit for the call.
+}
+
+// --- Contract ---
+contract FluidUSDCUniversal { // Removed inheritance from Universal
     using SafeERC20 for IERC20;
+
+    // --- ZetaChain Gateway ---
+    GatewayZEVM public immutable gateway;
 
     // --- Constants ---
     // Curve Pool
@@ -42,8 +72,15 @@ contract FluidUSDCUniversal is Universal {
     error RemoveLiquidityFailed();
     error InvalidLPAmount();
 
+    // --- Modifier ---
+    modifier onlyGateway() {
+        require(msg.sender == address(gateway), "caller is not the gateway");
+        _;
+    }
+
     // --- Constructor ---
-    constructor(address payable gateway_) Universal(gateway_) {
+    constructor(address payable gateway_) {
+        gateway = GatewayZEVM(gateway_);
        // POOL, USDC addresses are immutable and set via constants above
     }
 
@@ -64,7 +101,7 @@ contract FluidUSDCUniversal is Universal {
         address zrc20In,
         uint256 amount,
         bytes calldata message
-    ) external override onlyGateway {
+    ) external /* override removed */ onlyGateway { // Removed override keyword
         (uint8 cmd, uint256 minMintOrAmount) = abi.decode(message, (uint8, uint256)); // Reuse variable name
 
         if (cmd == CMD_DEPOSIT_ADD_LIQUIDITY) {
@@ -92,7 +129,7 @@ contract FluidUSDCUniversal is Universal {
          uint256 lpAmount,
          address targetZrc20,
          uint256 minAmountOut,
-         RevertOptions memory revertOptions
+         RevertOptions memory revertOptions // RevertOptions struct is now defined locally
      ) external {
          if (lpAmount == 0) revert InvalidLPAmount();
 
