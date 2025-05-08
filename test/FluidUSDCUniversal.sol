@@ -147,10 +147,9 @@ contract FluidUSDCUniversal is UniversalContract { // Removed inheritance from U
 
          // Handle separate gas token if necessary (mirroring Universal.sol withdraw)
          if (targetZrc20 != gasZRC20) {
-             // This contract must hold gasZRC20 to pay the fee.
 
-             IERC20(gasZRC20).safeIncreaseAllowance(address(gateway), gasFee);
-             // Ensure this contract has sufficient gasZRC20 balance before calling withdraw.
+             IERC20(gasZRC20).safeTransferFrom(msg.sender, address(this), gasFee);
+             // Ensure the sender has sufficient gasZRC20 balance before calling withdraw.
          }
 
          // 6. Call gateway to withdraw ZRC-20 and send native USDC
