@@ -1,14 +1,35 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import { ICurveStableSwapNG } from "./interfaces/ICurveStableSwapNG.sol"; // Relative import
+// import { Universal, MessageContext, RevertOptions, CallOptions } from "./Universal.sol"; // Removed import
+import "./interface/ICurveStableSwapNG.sol"; // Adjusted path
 import { SafeERC20, IERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IZRC20 } from "@zetachain/protocol-contracts/contracts/zevm/interfaces/IZRC20.sol";
 import { GatewayZEVM } from "@zetachain/protocol-contracts/contracts/zevm/GatewayZEVM.sol";
+import { RevertOptions } from "@zetachain/protocol-contracts/contracts/Revert.sol"; // Added import
 
+// --- Structs (from ZetaChain Universal example) ---
+/// @dev Struct to store context information about the cross-chain message.
+struct MessageContext {
+    bytes sender; // The address of the sender on the source chain.
+    uint256 sourceChainId; // The chain ID of the source chain.
+    address destination; // The destination address of the message (this contract).
+    address gateway; // The address of the gateway contract.
+    address zrc20; // The address of the ZRC-20 token involved in the call.
+    uint256 gasLimit; // The gas limit for the call.
+}
+
+/// @dev Struct to store options for making calls.
+struct CallOptions {
+    uint8 callType; // The type of call to make.
+    bytes to; // The recipient address for the call.
+    uint256 value; // The value to send with the call.
+    bytes data; // The data to send with the call.
+    uint256 gasLimit; // The gas limit for the call.
+}
 
 // --- Contract ---
-contract FluidUSDCUniversal is UniversalContract { // Removed inheritance from Universal
+contract FluidUSDCUniversal { // Removed inheritance from Universal
     using SafeERC20 for IERC20;
 
     // --- ZetaChain Gateway ---
@@ -19,7 +40,7 @@ contract FluidUSDCUniversal is UniversalContract { // Removed inheritance from U
     address public immutable POOL = 0xCA4b0396064F40640F1d9014257a99aB3336C724;
     // ZRC-20 Tokens 
     address public immutable USDC_ARB = 0x0327f0660525b15Cdb8f1f5FBF0dD7Cd5Ba182aD; 
-    address public immutable USDC_SOL = 0x8344d6f84d26f998fa070BbEa6D2E15E359e2641;
+    address public immutable USDC_SOL = 0x8344d6f84d26f998fa070BbEA6D2E15E359e2641;
     address public immutable USDC_BASE = 0x96152E6180E085FA57c7708e18AF8F05e37B479D;
     address public immutable USDC_AVAX = 0xa52Ad01A1d62b408fFe06C2467439251da61E4a9;
     // Curve Pool Token Indices (Based on github repo README - https://github.com/brewmaster012/FluidUSDC?tab=readme-ov-file)
@@ -78,7 +99,7 @@ contract FluidUSDCUniversal is UniversalContract { // Removed inheritance from U
         (uint8 cmd, uint256 minMintOrAmount) = abi.decode(message, (uint8, uint256)); // Reuse variable name
 
         if (cmd == CMD_DEPOSIT_ADD_LIQUIDITY) {
-            _addLiquidity(zrc20In, amount, minMintOrAmount, context.sender); // minMintOrAmount is minMint here
+            _addLiquidity(zrc20In, amount, minMintOrAmount, address(uint160(bytes20(context.sender)))); // Converted context.sender
         } else {
             revert InvalidCommand(cmd);
         }
@@ -178,13 +199,13 @@ contract FluidUSDCUniversal is UniversalContract { // Removed inheritance from U
 
         uint256[4] memory amounts; // N=4 for the pool
         if (zrc20In == USDC_ARB) {        // Added ARB check
-             amounts[uint(IDX_ARB)] = amount;
+             amounts[uint256(int256(IDX_ARB))] = amount;
         } else if (zrc20In == USDC_SOL) {
-            amounts[uint(IDX_SOL)] = amount;
+            amounts[uint256(int256(IDX_SOL))] = amount;
         } else if (zrc20In == USDC_BASE) {
-             amounts[uint(IDX_BASE)] = amount;
+             amounts[uint256(int256(IDX_BASE))] = amount;
         } else if (zrc20In == USDC_AVAX) { // Added AVAX check
-             amounts[uint(IDX_AVAX)] = amount;
+             amounts[uint256(int256(IDX_AVAX))] = amount;
         } else {
             revert UnsupportedZRC20(zrc20In);
         }
